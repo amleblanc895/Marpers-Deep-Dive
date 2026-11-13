@@ -103,9 +103,9 @@ canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edge
   text-shadow: 1px 1px 0 #2a1a14, -1px 0 0 #2a1a14, 0 -1px 0 #2a1a14, 1px 0 0 #2a1a14;
   font-size: clamp(10px, 2.8vw, 13px); font-variant-numeric: tabular-nums;
 }
-.fuel { display: flex; gap: 3px; align-items: center; }
+.fuel { display: flex; gap: 2px; align-items: center; }
 .fuel i {
-  display: block; width: 7px; height: 12px; border-radius: 2px;
+  display: block; width: 5px; height: 12px; border-radius: 2px;
   background: var(--fuel); box-shadow: 0 0 0 1px #2a1a14, inset 0 -3px 0 rgba(0,0,0,.25);
 }
 .fuel i.empty { background: var(--fuel-empty); }
@@ -381,8 +381,8 @@ const sx = x => SHAFT_L + (x - 24) * (SHAFT_R - SHAFT_L) / 112;
 const SHIRT = 14;
 const HALF_W = 6, BODY_H = 30, WALL_PAD = 13;
 const GRAV = 0.16, TERM = 3.3;
-let MAX_FUEL = 6, MAX_HEARTS = 4;   // the shop can raise these for the rest of a run
-const BASE_FUEL = 6, BASE_HEARTS = 4;
+let MAX_FUEL = 12, MAX_HEARTS = 4;   // the shop can raise these for the rest of a run
+const BASE_FUEL = 12, BASE_HEARTS = 4;
 let SCREENS = 24, FLOOR_Y = SCREEN_H * (SCREENS - 1) + 200;   // set per chapter in setChapter()
 
 // Music slot: put a chapter's WAV (or MP3/OGG) here as a URL or data: URI and it loops while that chapter plays.
@@ -907,19 +907,35 @@ function fire() {
   const v = ++volleyId;
   // jet style (bought in a shop) sets the volley; Super Jets widens it
   const style = run.style || 'fire', sup = superOn();
-  let offs = style === 'laser' ? [[0, 0]] : style === 'spread' ? [[-8, -0.5], [0, 0], [8, 0.5]] : [[-5, 0], [5, 0]];
-  if (sup) offs = style === 'laser' ? [[-5, 0], [5, 0]] : style === 'spread' ? [[-12, -0.8], [-6, -0.3], [0, 0], [6, 0.3], [12, 0.8]] : [[-8, -0.5], [0, 0], [8, 0.5]];
+  // every shot leaves from a sneaker: the left sole, the right sole, or points between them for wider volleys
+  const [L, Rs] = jetSoles(), at = t => ({ x: L.x + (Rs.x - L.x) * t, y: Math.max(L.y, Rs.y) * t + L.y * (1 - t) });
+  let pts = style === 'laser' ? [[at(0.5), 0]] : style === 'spread' ? [[L, -0.5], [at(0.5), 0], [Rs, 0.5]] : [[L, 0], [Rs, 0]];
+  if (sup) pts = style === 'laser' ? [[L, 0], [Rs, 0]]
+    : style === 'spread' ? [[L, -0.8], [at(0.25), -0.3], [at(0.5), 0], [at(0.75), 0.3], [Rs, 0.8]]
+    : [[L, -0.5], [at(0.5), 0], [Rs, 0.5]];
   const base = Math.max(P.vy, 0);
-  for (const [off, vx] of offs) {
-    if (style === 'laser') shots.push({ x: P.x + off, y: P.y - 2, vx: 0, vy: base + 8, life: 34, v, big: sup, kind: 'laser', pierce: 3 });
-    else if (style === 'bubble') shots.push({ x: P.x + off, y: P.y - 2, vx: vx * 0.6, vy: base + 2.2, life: 110, v, big: sup, kind: 'bubble' });
-    else shots.push({ x: P.x + off, y: P.y - 2, vx, vy: base + 4.6, life: 70, v, big: sup });
+  for (const [p, vx] of pts) {
+    const x = P.x + p.x, y = P.y + p.y + 4;
+    if (style === 'laser') shots.push({ x, y, vx: 0, vy: base + 8, life: 34, v, big: sup, kind: 'laser', pierce: 3 });
+    else if (style === 'bubble') shots.push({ x, y, vx: vx * 0.6, vy: base + 2.2, life: 110, v, big: sup, kind: 'bubble' });
+    else shots.push({ x, y, vx, vy: base + 4.6, life: 70, v, big: sup });
   }
-  for (let i = 0; i < 4; i++) parts.push({ x: P.x + (i < 2 ? -5 : 5), y: P.y, vx: (rnd() - .5) * .8, vy: rnd() * .6, life: 12, c: i % 2 ? '#ffd23f' : '#ff7a1a', s: 2 });
+  P.flashT = 7;
+  for (const sole of [L, Rs]) for (let i = 0; i < 2; i++)
+    parts.push({ x: P.x + sole.x, y: P.y + sole.y + 3, vx: (rnd() - .5) * 1.2, vy: rnd() * .8, life: 12, c: i % 2 ? '#ffd23f' : '#ff7a1a', s: 2 });
   sfx('fire');
   return true;
 }
 let fuelFlash = 0, volleyId = 0;
+// Bottom of each sneaker in the falling pose (fall_right frames 0-2) and in the climbing pose (jump frame 2),
+// measured from the sprite atlas. x is relative to P.x, y to P.y.
+const SOLES_FALL = [[[-5, 2], [8, -1]], [[-7, 2], [3, -1]], [[-10, -4], [1, -5]]];
+const SOLES_RISE = [[-10, -10], [4, -9]];
+function jetSoles() {
+  if (CLIMB) return SOLES_RISE.map(([x, y]) => ({ x: x * (P.face < 0 ? -1 : 1), y }));   // the climbing pose flips with facing
+  const f = P.anim === 'fall' ? P.frame % 3 : 0;
+  return SOLES_FALL[f].map(([x, y]) => ({ x, y }));
+}
 function flashFuel() { fuelFlash = 18; }
 
 // ---------- HUD ----------
@@ -949,7 +965,7 @@ function standingLedge() {
   return null;
 }
 const superOn = () => combo >= 10;
-const fuelMax = () => MAX_FUEL + (superOn() ? 2 : 0);
+const fuelMax = () => MAX_FUEL + (superOn() ? 4 : 0);
 function refill() { if (P.fuel < fuelMax()) { P.fuel = fuelMax(); renderHud(); sfx('refill'); } }
 function bankCombo() {
   if (combo >= 2) {
@@ -1230,7 +1246,7 @@ function step() {
 
   if (P.dive > 0 && tick % 2 === 0) parts.push({ x: P.x - P.diveDir * 8, y: P.y - 6, vx: -P.diveDir * .6, vy: -.4, life: 14, c: tick % 4 ? '#ffb43a' : '#6fd3ff', s: 2 });
 
-  for (const k of ['shootT', 'landT', 'jumpT', 'stompT', 'hurtT', 'inv']) if (P[k] > 0) P[k]--;
+  for (const k of ['shootT', 'landT', 'jumpT', 'stompT', 'hurtT', 'inv', 'flashT']) if (P[k] > 0) P[k]--;
   if (fuelFlash > 0) fuelFlash--;
   followCam();
   pickAnim();
@@ -1257,7 +1273,7 @@ function pickAnim() {
   else if (P.dive > 0) a = CLIMB ? 'rise' : 'dive';
   else if (P.stompT > 0) a = 'stomp';
   else if (P.jumpT > 0) a = 'jump';
-  else if (P.shootT > 0 && !CLIMB) a = 'shoot';
+  else if (P.shootT > 0 && !CLIMB) a = 'fall';   // shooting keeps the straight-down jet pose
   else if (CLIMB && P.vy < -0.3) a = 'rise';
   else a = P.lean > 0.7 ? 'fall_right_lean' : P.lean < -0.7 ? 'fall_left_lean' : 'fall';
   setAnim(a);
@@ -1391,6 +1407,17 @@ function drawMarper() {
   ctx.drawImage(atlas, m.x + fi * m.w, m.y, m.w, m.h, -m.anchorX, -m.anchorY, m.w, m.h);
   ctx.restore();
 }
+function drawJetFlash() {
+  if (!(P.flashT > 0) || P.faint || mode !== 'play') return;
+  const age = 7 - P.flashT, r = [4, 4, 3, 3, 2, 2, 1][age] || 1;
+  for (const sole of jetSoles()) {
+    const x = Math.round(P.x + sole.x), y = Math.round(P.y - camY + sole.y + 3);
+    for (const [rr, col] of [[r + 1, '#ff7a1a'], [r, '#ffd23f'], [Math.max(1, r - 2), '#fffbe0']]) {
+      ctx.fillStyle = col;
+      for (let k = -rr; k <= rr; k++) { const w = rr - Math.abs(k); ctx.fillRect(x - w, y + k, w * 2 + 1, 1); }   // a small diamond burst
+    }
+  }
+}
 function drawShots() {
   for (const s of shots) {
     const x = Math.round(s.x), y = Math.round(s.y - camY), f = (tick >> 1) & 1;
@@ -1431,7 +1458,7 @@ function drawDepthBar() {
 function draw() {
   ctx.clearRect(0, 0, W, H);
   if (mode === 'room') { drawRoom(); return; }
-  drawWorld(); drawWater(); drawWebs(); drawDoorsAndLanterns(); if (CLIMB) drawExit(); else drawTreasure(); drawNotes(); drawThreads(); drawEnemies(); drawBricks(); drawEnemyShots(); drawShots(); drawPetBehind(); drawMarper(); drawPetAbove(); drawParts(); drawDark(); drawDepthBar();
+  drawWorld(); drawWater(); drawWebs(); drawDoorsAndLanterns(); if (CLIMB) drawExit(); else drawTreasure(); drawNotes(); drawThreads(); drawEnemies(); drawBricks(); drawEnemyShots(); drawShots(); drawPetBehind(); drawMarper(); drawJetFlash(); drawPetAbove(); drawParts(); drawDark(); drawDepthBar();
   $('fuel').style.opacity = fuelFlash > 0 && (fuelFlash >> 2) % 2 ? '.35' : '1';
   $('depth').textContent = CLIMB ? `${Math.max(0, Math.round((FLOOR_Y - P.y) / 8))} m up` : `${Math.max(0, Math.round(P.y / 8))} m`;
 }
@@ -1527,7 +1554,7 @@ function respawn() {
 const SHOP = [
   { id: 'heart', name: 'Heart refill', what: 'Get back 1 heart', price: 15 },
   { id: 'maxheart', name: 'Extra heart', what: '+1 heart slot for this run', price: 40, once: true },
-  { id: 'tank', name: 'Bigger jet tank', what: '+1 fuel pip for this run', price: 30 },
+  { id: 'tank', name: 'Bigger jet tank', what: '+2 fuel pips for this run', price: 30 },
   { id: 'spread', name: 'Spread jets', what: 'Three fireballs per volley', price: 35, style: true },
   { id: 'laser', name: 'Laser jets', what: 'A fast beam that pierces enemies', price: 35, style: true },
   { id: 'bubble', name: 'Bubble jets', what: 'Bubbles trap enemies, even spiky ones, for stomping', price: 35, style: true },
@@ -1579,7 +1606,7 @@ function showRoomCard(msg = '') {
     run.notes -= it.price; run.bought = run.bought || {}; run.bought[it.id] = true;
     if (it.id === 'heart') P.hearts = Math.min(MAX_HEARTS, P.hearts + 1);
     if (it.id === 'maxheart') { MAX_HEARTS++; P.hearts++; }
-    if (it.id === 'tank') { MAX_FUEL++; P.fuel = MAX_FUEL; }
+    if (it.id === 'tank') { MAX_FUEL += 2; P.fuel = MAX_FUEL; }
     if (it.style) run.style = it.id;
     if (checkpoint) checkpoint.notes = Math.min(checkpoint.notes, run.notes);
     lastHud = ''; renderHud(); sfx('note');
